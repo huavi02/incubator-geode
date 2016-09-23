@@ -48,6 +48,7 @@ import org.apache.geode.internal.logging.log4j.LogMarker;
 import org.apache.geode.internal.offheap.OffHeapHelper;
 import org.apache.geode.internal.offheap.OffHeapRegionEntryHelper;
 import org.apache.geode.internal.offheap.ReferenceCountHelper;
+import org.apache.geode.internal.offheap.StoredObject;
 import org.apache.geode.internal.offheap.annotations.Released;
 import org.apache.geode.internal.offheap.annotations.Retained;
 import org.apache.geode.internal.offheap.annotations.Unretained;
@@ -246,15 +247,19 @@ public abstract class AbstractRegionMap implements RegionMap {
 
 
   public final RegionEntry putEntryIfAbsent(Object key, RegionEntry re) {
-    RegionEntry value = (RegionEntry)_getMap().putIfAbsent(key, re);
-    if (value == null && (re instanceof OffHeapRegionEntry) 
+    RegionEntry oldRe = (RegionEntry)_getMap().putIfAbsent(key, re);
+    if (oldRe == null && (re instanceof OffHeapRegionEntry) 
         && _isOwnerALocalRegion() && _getOwner().isThisRegionBeingClosedOrDestroyed()) {
       // prevent orphan during concurrent destroy (#48068)
-      if (_getMap().remove(key, re)) {
-        ((OffHeapRegionEntry)re).release();
+      Object v = re._getValue();
+      if (v != Token.REMOVED_PHASE1 && v != Token.REMOVED_PHASE2
+          && v instanceof StoredObject && ((StoredObject)v).hasRefCount()) {
+        if (_getMap().remove(key, re)) {
+          ((OffHeapRegionEntry)re).release();
+        }
       }
     }
-    return value;
+    return oldRe;
   }
 
   @Override
